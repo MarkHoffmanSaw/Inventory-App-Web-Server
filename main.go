@@ -38,6 +38,7 @@ func main() {
 	router.HandleFunc("/incoming_materials", getIncomingMaterialsHandler).Methods("GET")
 
 	router.HandleFunc("/warehouses", createWarehouseHandler).Methods("POST")
+	router.HandleFunc("/warehouses", getWarehouseHandler).Methods("GET")
 	router.HandleFunc("/available_locations", getAvailableLocationsHandler).Methods("GET")
 
 	router.HandleFunc("/reports/transactions", getTransactionsReport).Methods("GET")
@@ -193,13 +194,29 @@ func createWarehouseHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(warehouse)
 }
 
+func getWarehouseHandler(w http.ResponseWriter, r *http.Request) {
+	db, _ := connectToDB()
+	defer db.Close()
+
+	warehouses, err := fetchWarehouses(db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(warehouses)
+}
+
 func getAvailableLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	db, _ := connectToDB()
 	defer db.Close()
 	stockId := r.URL.Query().Get("stockId")
 	owner := r.URL.Query().Get("owner")
 
-	locations, _ := fetchAvailableLocations(db, LocationFilter{stockId: stockId, owner: owner})
+	locations, err := fetchAvailableLocations(db, LocationFilter{stockId: stockId, owner: owner})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	json.NewEncoder(w).Encode(locations)
 }
 

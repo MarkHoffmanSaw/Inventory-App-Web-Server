@@ -21,7 +21,8 @@ func fetchAvailableLocations(db *sql.DB, opts LocationFilter) ([]LocationDB, err
 		SELECT l.location_id, l.name, l.warehouse_id FROM locations l
 		LEFT JOIN materials m
 		ON l.location_id = m.location_id
-		WHERE m.stock_id = $1 AND m.owner = $2 OR m.material_id IS NULL;
+		WHERE m.stock_id = $1 AND m.owner = $2 OR m.material_id IS NULL
+		ORDER BY l.name ASC;
 	`, opts.stockId, opts.owner)
 	if err != nil {
 		log.Println("Error fetchLocations1: ", err)

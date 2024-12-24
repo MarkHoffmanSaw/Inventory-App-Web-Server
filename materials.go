@@ -170,11 +170,13 @@ func getIncomingMaterials(db *sql.DB) ([]IncomingMaterialDB, error) {
 
 func getMaterials(db *sql.DB) ([]MaterialDB, error) {
 	rows, err := db.Query(`
-		SELECT material_id, w.name as "warehouse_name",
+		SELECT material_id,
+		COALESCE(w.name,'None') as "warehouse_name",
 		c.name as "customer_name", c.customer_id,
-		l.location_id, l.name as "location_name",
+		COALESCE(l.location_id, 0),
+		COALESCE(l.name, 'None') as "location_name",
 		stock_id, cost, quantity, min_required_quantity, max_required_quantity,
-		m.description, notes, is_active, material_type, owner
+		m.description, COALESCE(notes,'None'), is_active, material_type, owner
 		FROM materials m
 		LEFT JOIN customers c ON c.customer_id = m.customer_id
 		LEFT JOIN locations l ON l.location_id = m.location_id
@@ -236,7 +238,8 @@ func createMaterial(material MaterialJSON, db *sql.DB) error {
 		return err
 	}
 
-	// Update material in the current location
+	// Update material in the current location if location exists
+	var materialId int
 	rows, err := db.Query(`
 					UPDATE materials
 					SET quantity = (quantity + $1),
@@ -250,9 +253,6 @@ func createMaterial(material MaterialJSON, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-
-	var materialId int
-
 	for rows.Next() {
 		err := rows.Scan(&materialId)
 		if err != nil {
@@ -260,10 +260,38 @@ func createMaterial(material MaterialJSON, db *sql.DB) error {
 		}
 	}
 
-	// If there is no the same material in the current location
-	// Then add the material in the chosen one
+	// If there is no a same material in the current location:
 	if materialId == 0 {
-		err := db.QueryRow(`
+		// Check for a NULL location and if it exists then assign the new location and qty
+		rows, err := db.Query(`
+			SELECT material_id FROM materials
+			WHERE location_id is NULL;
+		`)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			err := rows.Scan(&materialId)
+			if err != nil {
+				return err
+			}
+		}
+
+		if materialId != 0 {
+			_, err := db.Query(`
+					UPDATE materials
+					SET quantity = $1,
+						notes = $2,
+						location_id = $3
+					WHERE material_id = $4;
+					`, material.Qty, material.Notes, material.LocationID, materialId,
+			)
+			if err != nil {
+				return err
+			}
+		} else {
+			// If it's not, then add the material to the new location
+			err := db.QueryRow(`
 						INSERT INTO materials
 						(
 							stock_id,
@@ -281,22 +309,23 @@ func createMaterial(material MaterialJSON, db *sql.DB) error {
 							owner
 						)
 						VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING material_id;`,
-			incomingMaterial.StockID,
-			material.LocationID,
-			incomingMaterial.CustomerID,
-			incomingMaterial.MaterialType,
-			incomingMaterial.Description,
-			material.Notes,
-			material.Qty,
-			time.Now(),
-			incomingMaterial.MinQty,
-			incomingMaterial.MaxQty,
-			incomingMaterial.IsActive,
-			incomingMaterial.Cost,
-			incomingMaterial.Owner,
-		).Scan(&materialId)
-		if err != nil {
-			return err
+				incomingMaterial.StockID,
+				material.LocationID,
+				incomingMaterial.CustomerID,
+				incomingMaterial.MaterialType,
+				incomingMaterial.Description,
+				material.Notes,
+				material.Qty,
+				time.Now(),
+				incomingMaterial.MinQty,
+				incomingMaterial.MaxQty,
+				incomingMaterial.IsActive,
+				incomingMaterial.Cost,
+				incomingMaterial.Owner,
+			).Scan(&materialId)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -530,10 +559,36 @@ func moveMaterial(material MaterialJSON, db *sql.DB) error {
 	if actualQuantity < quantity {
 		return errors.New(
 			`The moving quantity (` + strconv.Itoa(quantity) + `) is more than the actual one (` + strconv.Itoa(actualQuantity) + `)`)
-	}
-
-	// Update material in the current location
-	err = db.QueryRow(`
+	} else if actualQuantity == quantity {
+		// Unassign the current location due to zero qty
+		err = db.QueryRow(`
+			UPDATE materials
+			SET quantity = 0,
+				location_id = NULL,
+				notes = $1
+			WHERE material_id = $2 AND location_id = $3
+			RETURNING material_id, stock_id, customer_id, material_type,
+					description, notes, quantity, updated_at, is_active, cost,
+					min_required_quantity, max_required_quantity, owner;
+			`, notes, currMaterialId, currentLocationId,
+		).Scan(
+			&currMaterial.MaterialID,
+			&currMaterial.StockID,
+			&currMaterial.CustomerID,
+			&currMaterial.MaterialType,
+			&currMaterial.Description,
+			&currMaterial.Notes,
+			&currMaterial.Quantity,
+			&currMaterial.UpdatedAt,
+			&currMaterial.IsActive,
+			&currMaterial.Cost,
+			&currMaterial.MinQty,
+			&currMaterial.MaxQty,
+			&currMaterial.Owner,
+		)
+	} else {
+		// Update material in the current location
+		err = db.QueryRow(`
 			UPDATE materials
 			SET quantity = (quantity - $1),
 				notes = $2
@@ -542,22 +597,23 @@ func moveMaterial(material MaterialJSON, db *sql.DB) error {
 					description, notes, quantity, updated_at, is_active, cost,
 					min_required_quantity, max_required_quantity, owner;
 			`, quantity, notes, currMaterialId, currentLocationId,
-	).Scan(
-		&currMaterial.MaterialID,
-		&currMaterial.StockID,
-		&currMaterial.LocationID,
-		&currMaterial.CustomerID,
-		&currMaterial.MaterialType,
-		&currMaterial.Description,
-		&currMaterial.Notes,
-		&currMaterial.Quantity,
-		&currMaterial.UpdatedAt,
-		&currMaterial.IsActive,
-		&currMaterial.Cost,
-		&currMaterial.MinQty,
-		&currMaterial.MaxQty,
-		&currMaterial.Owner,
-	)
+		).Scan(
+			&currMaterial.MaterialID,
+			&currMaterial.StockID,
+			&currMaterial.LocationID,
+			&currMaterial.CustomerID,
+			&currMaterial.MaterialType,
+			&currMaterial.Description,
+			&currMaterial.Notes,
+			&currMaterial.Quantity,
+			&currMaterial.UpdatedAt,
+			&currMaterial.IsActive,
+			&currMaterial.Cost,
+			&currMaterial.MinQty,
+			&currMaterial.MaxQty,
+			&currMaterial.Owner,
+		)
+	}
 	if err != nil {
 		return err
 	}
@@ -637,17 +693,27 @@ func removeMaterial(material MaterialToRemoveJSON, db *sql.DB) error {
 
 	if actualQuantity < quantity {
 		return errors.New(`The removing quantity (` + strconv.Itoa(quantity) + `) is more than the actual one (` + strconv.Itoa(actualQuantity) + `)`)
-	}
-
-	// Update the material quantity
-	_, err = db.Exec(`
+	} else if actualQuantity == quantity {
+		// Unassign a location from the material due to zero qty
+		_, err = db.Exec(`
+				UPDATE materials
+				SET quantity = 0,
+					location_id = NULL
+				WHERE material_id = $1;
+		`, materialId,
+		)
+	} else {
+		// Update the material quantity
+		_, err = db.Exec(`
 				UPDATE materials
 				SET quantity = (quantity - $1)
 				WHERE material_id = $2;
 		`, quantity, materialId,
-	)
+		)
+	}
 
 	if err != nil {
+		log.Println("err", err)
 		return err
 	}
 

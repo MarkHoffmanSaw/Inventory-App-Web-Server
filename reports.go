@@ -120,7 +120,7 @@ func (t TransactionReport) getReportList() ([]TransactionRep, error) {
 func (b BalanceReport) getReportList() ([]BalanceRep, error) {
 	rows, err := b.db.Query(`
 	SELECT m.stock_id,
-		   l.name as "location_name",
+		   COALESCE(l.name, 'None') as "location_name",
 		   m.material_type,
 		   SUM(tl.quantity_change) AS "quantity",
 		   SUM(tl.quantity_change * tl.cost) AS "total_value"
