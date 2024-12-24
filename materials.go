@@ -377,7 +377,7 @@ func addTranscation(trx *TransactionInfo, db *sql.DB) error {
 			db.QueryRow(`
 				SELECT transaction_id, cost, remaining_quantity FROM transactions_log
 				WHERE material_id = $1 AND stock_id = $2 AND quantity_change < 0
-					AND cost NOT IN (`+strings.Join(emptyCost, ",")+`)
+					AND (cost IS NOT NULL OR cost NOT IN (`+strings.Join(emptyCost, ",")+`))
 				ORDER BY transaction_id DESC LIMIT 1;
 						`,
 				trx.materialId,
@@ -388,7 +388,7 @@ func addTranscation(trx *TransactionInfo, db *sql.DB) error {
 				db.QueryRow(`
 					SELECT transaction_id, cost, remaining_quantity FROM transactions_log
 					WHERE material_id = $1 AND stock_id = $2  AND quantity_change > 0
-						AND cost NOT IN (`+strings.Join(emptyCost, ",")+`)
+						AND (cost IS NOT NULL OR cost NOT IN (`+strings.Join(emptyCost, ",")+`))
 					ORDER BY transaction_id LIMIT 1;
 							`,
 					trx.materialId,
@@ -397,7 +397,7 @@ func addTranscation(trx *TransactionInfo, db *sql.DB) error {
 
 				// When neither positive nor negative calculations found
 				if transactionId == 0 {
-					return errors.New("no remains found")
+					return errors.New("No remains found. Please check the cost")
 				}
 
 				// First deduction is found, but remains are zero
@@ -726,6 +726,7 @@ func removeMaterial(material MaterialToRemoveJSON, db *sql.DB) error {
 		updatedAt:  time.Now(),
 	}, db)
 	if err != nil {
+		log.Println(err)
 		return err
 	}
 
