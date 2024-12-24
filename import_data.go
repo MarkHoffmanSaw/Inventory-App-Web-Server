@@ -53,6 +53,11 @@ func importDataToDB(db *sql.DB) error {
 			continue
 		}
 
+		if qty == 0 {
+			log.Println("No Quantity. Skipping...")
+			continue
+		}
+
 		// Check for a customer
 		var customerId int
 		err := db.QueryRow(`SELECT customer_id FROM customers

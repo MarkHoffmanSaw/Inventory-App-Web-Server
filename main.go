@@ -39,6 +39,7 @@ func main() {
 
 	router.HandleFunc("/warehouses", createWarehouseHandler).Methods("POST")
 	router.HandleFunc("/warehouses", getWarehouseHandler).Methods("GET")
+	router.HandleFunc("/locations", getLocationsHandler).Methods("GET")
 	router.HandleFunc("/available_locations", getAvailableLocationsHandler).Methods("GET")
 
 	router.HandleFunc("/reports/transactions", getTransactionsReport).Methods("GET")
@@ -204,6 +205,18 @@ func getWarehouseHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(warehouses)
+}
+
+func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
+	db, _ := connectToDB()
+	defer db.Close()
+
+	locations, err := fetchLocations(db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(locations)
 }
 
 func getAvailableLocationsHandler(w http.ResponseWriter, r *http.Request) {

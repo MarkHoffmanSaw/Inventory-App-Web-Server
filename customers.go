@@ -27,7 +27,7 @@ func createCustomer(customer CustomerJSON, db *sql.DB) error {
 }
 
 func fetchCustomers(db *sql.DB) ([]CustomerDB, error) {
-	rows, err := db.Query("SELECT * FROM customers;")
+	rows, err := db.Query("SELECT * FROM customers ORDER BY name ASC;")
 	if err != nil {
 		log.Println("Error fetchCustomers1: ", err)
 		return nil, err
